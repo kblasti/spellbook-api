@@ -21,8 +21,8 @@ type User struct {
 }
 
 func (cfg *APIConfig) HandlerCreateUser(w http.ResponseWriter, r *http.Request) {
-	type Input struct {
-        Email string `json:"email"`
+    type Input struct {
+        Email    string `json:"email"`
         Password string `json:"password"`
     }
 
@@ -37,6 +37,21 @@ func (cfg *APIConfig) HandlerCreateUser(w http.ResponseWriter, r *http.Request) 
         return
     }
 
+    if !IsValidEmailFormat(input.Email) {
+        respondWithError(w, 400, "Invalid email format")
+        return
+    }
+
+    if IsDisposableEmail(input.Email) {
+        respondWithError(w, 400, "Disposable email addresses are not allowed")
+        return
+    }
+
+    if len(input.Password) < 6 {
+        respondWithError(w, 400, "Password must be at least 6 characters")
+        return
+    }
+
     hashed, err := auth.HashPassword(input.Password)
     if err != nil {
         respondWithError(w, 500, "Error hashing password")
@@ -46,7 +61,7 @@ func (cfg *APIConfig) HandlerCreateUser(w http.ResponseWriter, r *http.Request) 
     dbUser, err := cfg.DB.CreateUser(r.Context(), database.CreateUserParams{
         Email:          input.Email,
         HashedPassword: hashed,
-		Role:			role,
+        Role:           role,
     })
     if err != nil {
         respondWithError(w, 500, "Error creating user")
@@ -54,15 +69,14 @@ func (cfg *APIConfig) HandlerCreateUser(w http.ResponseWriter, r *http.Request) 
     }
 
     appUser := User{
-        ID:         dbUser.ID,
-        CreatedAt:  dbUser.CreatedAt,
-        UpdatedAt:  dbUser.UpdatedAt,
-        Email:      dbUser.Email,
-		Role:		dbUser.Role,
+        ID:        dbUser.ID,
+        CreatedAt: dbUser.CreatedAt,
+        UpdatedAt: dbUser.UpdatedAt,
+        Email:     dbUser.Email,
+        Role:      dbUser.Role,
     }
 
     respondWithJSON(w, 201, appUser)
-    return
 }
 
 func (cfg *APIConfig) HandlerCreateAdminUser(w http.ResponseWriter, r *http.Request) {
@@ -252,8 +266,8 @@ func (cfg *APIConfig) HandlerDeleteUser(w http.ResponseWriter, r *http.Request) 
 
 func (cfg *APIConfig) HandlerUpdateUser(w http.ResponseWriter, r *http.Request) {
     type parameters struct {
-        Email 		string 	`json:"email"`
-        Password 	string 	`json:"password"`
+        Email    string `json:"email"`
+        Password string `json:"password"`
     }
 
     token, err := auth.GetBearerToken(r.Header)
@@ -277,17 +291,53 @@ func (cfg *APIConfig) HandlerUpdateUser(w http.ResponseWriter, r *http.Request) 
         return
     }
 
-    hashedPassword, err := auth.HashPassword(params.Password)
+    if params.Email != "" {
+        if !IsValidEmailFormat(params.Email) {
+            respondWithError(w, 400, "Invalid email format")
+            return
+        }
+
+        if IsDisposableEmail(params.Email) {
+            respondWithError(w, 400, "Disposable email addresses are not allowed")
+            return
+        }
+    }
+
+    var hashedPassword string
+    if params.Password != "" {
+        if len(params.Password) < 6 {
+            respondWithError(w, 400, "Password must be at least 6 characters")
+            return
+        }
+
+        hashedPassword, err = auth.HashPassword(params.Password)
+        if err != nil {
+            respondWithError(w, 500, "Error hashing password")
+            return
+        }
+    }
+
+    currentUser, err := cfg.DB.GetUserByID(r.Context(), userID)
     if err != nil {
-        respondWithError(w, 500, "Error hashing password")
+        respondWithError(w, 500, "Error retrieving user")
         return
     }
 
+    emailToSave := currentUser.Email
+    if params.Email != "" {
+        emailToSave = params.Email
+    }
+
+    passwordToSave := currentUser.HashedPassword
+    if hashedPassword != "" {
+        passwordToSave = hashedPassword
+    }
+
     dbUser, err := cfg.DB.UpdateUser(r.Context(), database.UpdateUserParams{
-        Email: params.Email,
-        HashedPassword: hashedPassword,
-		Role:	"user",
-        ID: userID,
+        Email:          emailToSave,
+        HashedPassword: passwordToSave,
+        Role:           "user",
+        ID:             userID,
     })
     if err != nil {
         respondWithError(w, 500, "Error updating user")
@@ -295,14 +345,13 @@ func (cfg *APIConfig) HandlerUpdateUser(w http.ResponseWriter, r *http.Request) 
     }
 
     response := User{
-        ID:         dbUser.ID,
-        CreatedAt:  dbUser.CreatedAt,
-        UpdatedAt:  dbUser.UpdatedAt,
-        Email:      dbUser.Email,
+        ID:        dbUser.ID,
+        CreatedAt: dbUser.CreatedAt,
+        UpdatedAt: dbUser.UpdatedAt,
+        Email:     dbUser.Email,
     }
 
     respondWithJSON(w, 200, response)
-    return
 }
 
 func (cfg *APIConfig) AuthMiddleware(next http.Handler) http.Handler { 
