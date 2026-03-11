@@ -25,8 +25,6 @@ WORKDIR /app
 # Copy the built server executable from the builder stage to the runtime stage
 COPY --from=builder /usr/local/bin/server /usr/local/bin/server
 
-COPY data data
-
 # Define the PORT environment variable.
 ENV PORT=8080
 

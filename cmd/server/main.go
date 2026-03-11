@@ -8,7 +8,20 @@ import (
   "github.com/kblasti/spellbook/internal/api"
   "database/sql"
   "log"
+  "golang.org/x/time/rate"
 )
+
+var globalLimiter = rate.NewLimiter(rate.Limit(1), 3)
+
+func limitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !globalLimiter.Allow() {
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
   godotenv.Load()
@@ -78,7 +91,7 @@ func main() {
 
   srv := &http.Server{
         Addr:    ":" + port,
-        Handler: api.EnableCORS(mux),
+        Handler: limitMiddleware(api.EnableCORS(mux)),
     }  
 
   log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
